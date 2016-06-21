@@ -1,0 +1,76 @@
+# Docker Compose configuration for the Alerting with ELK and Elastalert article.
+# By Ivan Krizsan.
+
+# Mule ESB CE instance that is being monitored in the example.
+mule_ce_esb:
+    image: vromero/mule:3.7.0
+    hostname: mule_ce_esb
+    ports:
+        - "1096:1096"
+    volumes:
+        - ./muleShared/apps:/opt/mule/apps
+        - ./muleShared/conf:/opt/mule/conf
+        - ./muleShared/logs:/opt/mule/logs
+
+# Elasticsearch instance.
+# Note that with the official Elasticsearch Docker image, we have to set
+# es.network.bind_host to 0.0.0.0 in order for Elasticsearch to be reachable
+# from outside of the Docker container it runs in.
+elasticsearch:    
+    build: cht/elasticsearch
+    #image: cht/elasticsearch:latest
+    hostname: elasticsearch
+    ports:
+        - "9200:9200"
+        - "9300:9300"
+    volumes:
+        - ./elasticsearchShared/config:/usr/share/elasticsearch/config
+        - ./elasticsearchShared/logs:/opt/logs/elasticsearch
+    command: elasticsearch -Des.network.bind_host=0.0.0.0
+# Logstash instance.
+# Customized wrapper around the official image as to wait for Elasticsearch
+# to be up and running before starting Logstash.
+logstash:
+    build: cht/logstash
+    #image: cht/logstash:latest
+    volumes:
+        - ./logstashShared/config:/config-dir
+        - ./logstashShared/logs:/log-dir
+    links:
+        - mule_ce_esb:muleserver
+        - elasticsearch:elasticsearch
+    environment:
+        - ELASTICSEARCH_URL=http://elasticsearch:9200
+    command: logstash -f /config-dir/
+
+# Kibana instance.
+# Customized wrapper around the official image as to wait for Elasticsearch
+# to be up and running before starting Kibana.
+kibana:
+    build: cht/kibana
+    #image: cht/kibana:latest
+    volumes:
+        - ./kibanaShared/config:/opt/kibana/config
+        - ./kibanaShared/logs:/log-dir
+    ports:
+        - "5601:5601"
+    links:
+        - elasticsearch:elasticsearch
+    volumes:
+        - ./kibanaShared/install:/install
+    environment:
+        - ELASTICSEARCH_URL=http://elasticsearch:9200
+
+# Elastalert instance.
+# Docker image available from Docker Hub.
+elastalert:
+    image: ivankrizsan/elastalert
+    cap_add:
+        - SYS_TIME
+        - SYS_NICE
+    volumes:
+        - ./elastalertShared/logs:/opt/logs
+        - ./elastalertShared/rules:/opt/rules
+        - ./elastalertShared/config:/opt/config
+    links:
+        - elasticsearch:elasticsearch_host
